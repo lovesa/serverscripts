@@ -1,0 +1,16 @@
+_AL_ENVIRONMENT=1			# DEFAULT SET TO 1
+
+_AL_PSQL="psql -U postgres"		# Psql default command
+_AL_DEF_SP_PHONE=""
+_AL_REPORT_ERROR=1			# Report error through sms
+
+#DEFLOG=/var/log/serverscripts.log
+#DEBUG=1				# Enable debug mode
+#ALLOWOUT=1				# Allow output into stdout
+
+_AL_PGPOOL_USER=""		# Pgpool username
+_AL_PGPOOL_PASS=""		# Pgpool password
+
+_AL_PID_DIR=/var/run/
+_AL_LOCK_DIR=/var/lock/subsys/
+

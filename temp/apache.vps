@@ -1,0 +1,213 @@
+#!/bin/bash
+
+###
+# chkconfig: 2345 99 12 
+# description: Apache+pgpool VPS startup and status script
+###
+
+VZCTL=/usr/sbin/vzctl
+VZLIST=/usr/sbin/vzlist
+VPS="102"
+BRIDGE="vlan77"
+LOG="/var/log/ha.apache.vps.log"
+apache_limit=200
+TIMEOUT=1
+PGPORT=5432
+
+function e {
+	echo "======================="
+	echo -e $(date "+%F %T"):  $1
+	echo "======================="
+}
+
+# VPS startup 
+start() {
+        $VZCTL start $VPS > /dev/null 2>&1
+	ifconfig veth${VPS}.0 up
+	brctl addif ${BRIDGE} veth${VPS}.0 
+        RETVAL=$?
+        return $RETVAL
+}
+
+# VPS stop
+stop() {
+        $VZCTL stop $VPS > /dev/null 2>&1
+        RETVAL=$?
+        return $RETVAL
+}
+
+# VPS status
+# Checks whether apache is running and responding
+# Checss whether pgpool is running and responding
+ 
+status() {
+	#Checking if VPS is running
+	STATUS=`${VZLIST} ${VPS} | grep ${VPS} | awk '{print \$3}'`
+	if [ $? -eq 0 ]; then
+		if [ -z "${STATUS}" ] || [ "${STATUS}" != "running" ]; then
+			e "Vps check failed with status: ${STATUS}" >> $LOG
+			RETVAL=7
+			return $RETVAl
+		fi
+	else
+		e "Failed: ${VZCTL} returned $?" >> $LOG
+		RETVAL=1
+		return $RETVAL
+	fi
+ 	# Getting ip address of the VPS
+	SIP="`${VZLIST} ${VPS} | grep ${VPS} | awk '{print \$4}'`"
+	if [ -z "$SIP" ] || [ "$SIP" == "-" ]; then
+		SIP="`${VZCTL} exec ${VPS} ifconfig eth0  | grep 'inet addr:'| cut -d: -f2 | awk '{ print $1}'`"
+		if [ -z "$SIP" ]; then
+			e "Can not determine VPS(${VPS}) IP" >> $LOG
+			RETVAL=1
+			return $RETVAL
+		fi
+	fi	
+
+	# Checking Apache status
+	STATUS="`$VZCTL exec $VPS /etc/init.d/httpd status | awk '{print $5}'`"
+	
+	if [ $? -eq 0 ]; then
+        	if [ ! -z "$STATUS" ]; then
+                	if [ "$STATUS" != "running..." ]; then
+         			e "Apache is not running..." >> $LOG
+				RETVAL=1
+				return $RETVAL
+                	fi
+        	else
+			e "Got nothing from apache" >> $LOG
+			RETVAL=1
+                	return $RETVAL
+        	fi
+	else
+		e "Apache returned status: $?" >> $LOG
+		RETVAL=1
+        	return $RETVAL
+	fi
+
+	# Tying to connect to apache 
+	active=`/root/cluster/timeout ${TIMEOUT} /root/cluster/apache2.pl http://${SIP} 7`
+ 		
+	if [ $? -eq 0 ]; then #Checking if script exited with 0 code
+	        if [ ! -z "$active" ]; then #Checking if string is not zero
+        	        if [[ -n "$active" && "$(echo "$active" | tr -c -d 1234567890)" == "$active" ]]; then #Cheking if returned value is integer
+
+                	        if [ $active -ge $apache_limit ]; then #Checking if active connection limit is not reached
+                        	       	e "Apache limit reached: $active($apache_limit)" >> $LOG
+					RETVAL=1
+					return $RETVAL
+                        	fi
+                	else
+				e "Connections count is not integer: $active" >> $LOG
+                        	RETVAL=1
+                                return $RETVAL
+                	fi
+        	else
+			e "Can not determine apache connections count" >> $LOG
+                	RETVAL=1
+                        return $RETVAL
+        	fi
+	else
+		e "Script returned: $?" >> $LOG
+        	RETVAL=1
+                return $RETVAL
+	fi
+
+	# Starting pgpool check
+	PSTATUS="`$VZCTL exec $VPS /etc/init.d/pgpool-II-91 status | awk '{print $3}'`"
+	if [ $? -eq 0 ]; then
+        	if [ ! -z "$PSTATUS" ]; then
+                	if [ "$PSTATUS" == "stopped" ]; then
+         			e "Pgpool is not running..." >> $LOG
+				RETVAL=1
+				return $RETVAL
+                	fi
+        	else
+			e "Got nothing from pgpool" >> $LOG
+			RETVAL=1
+                	return $RETVAL
+        	fi
+	else
+		e "Pgpool returned status: $?" >> $LOG
+		RETVAL=1
+        	return $RETVAL
+	fi
+	
+	# Trying to connect to pgpool
+
+	PGSTATUS="`/root/cluster/timeout 2 ${VZCTL} exec ${VPS} \"psql -p ${PGPORT} postgres postgres -c 'SELECT 1;'\" 2>&1`"
+	if [ $? -eq 0 ]; then
+		if [ -z "$PGSTATUS" ]; then
+			e "Pgsql returned null" >> $LOG
+			RETVAL=1
+			return $RETVAL
+		fi	
+	else
+		e "Can not connect to pgpool (Status: $?)..." >> $LOG
+		RETVAL=1
+		return $RETVAL
+	fi
+
+	RETVAL=0
+
+	return $RETVAL
+	
+}
+function meta() {
+cat <<EOF
+<?xml version="1.0"?>
+<!DOCTYPE resource-agent SYSTEM "ra-api-1.dtd">
+<resource-agent name="apache.vps" version="0.1">
+  <version>0.1</version>
+  <longdesc lang="en">
+This is a apache VPS reource agent. This this agent you can start/stop apache VPS 
+with Pgpool, also status monitoring is available
+  </longdesc>
+  <shortdesc lang="en">Apache VPS agent</shortdesc>
+  <parameters>
+  </parameters>
+  <actions>
+    <action name="start"        timeout="20" />
+    <action name="stop"         timeout="20" />
+    <action name="monitor"      timeout="20"
+                                interval="10" depth="0" />
+    <action name="meta-data"    timeout="5" />
+  </actions>
+</resource-agent>
+EOF
+
+	exit 0
+}
+
+# See how we were called.
+case "$1" in
+  start)
+        start
+        ;;
+  stop)
+        stop
+        ;;
+  meta-data)
+	meta
+	;;
+  monitor) 
+	status
+	;;
+  status)
+        status
+        ;;
+  *)
+        echo $"Usage: apache.vps {start|stop|status}"
+        exit 1
+esac
+
+if [ $RETVAL -eq 0 ]; then
+
+	echo "OK"
+
+else
+	echo "Resource is stoped"
+
+fi
+exit $RETVAL

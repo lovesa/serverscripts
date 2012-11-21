@@ -1,0 +1,118 @@
+#!/bin/bash
+
+# Filename: monitor_hotstandby
+#  Usage is $0 -m master:port -s slave:port -b "PostgreSQL Bin Directory"
+#  Author: Vibhor Kumar
+#  Date: Jan 4th 2011
+#  E-mail: vibhor.aim@gmail.com
+
+while getopts "m:s:b:" opt;do
+ case $opt in
+ m)
+   h1=`echo $OPTARG|cut -d":" -f1`
+   p1=`echo $OPTARG|cut -d":" -f2`;;
+ s)
+   h2=`echo $OPTARG|cut -d":" -f1`
+   p2=`echo $OPTARG|cut -d":" -f2`;;
+ b) PGHOME="$OPTARG"
+esac
+done
+PSQL=$PGHOME/psql
+
+function usage()
+{
+ if [  -z $h1 ];then
+   echo "USAGE: "
+   echo "$0 -m master:port -s slave:port -b pg bin directory"
+   exit 1
+ fi
+ if [  -z $h2 ];then
+   echo "USAGE: "
+   echo "$0 -m master:port -s slave:port -b pg bin directory"
+   exit 1
+ fi
+ if [  -z $p1 ];then
+   echo "USAGE: "
+   echo "$0 -m master:port -s slave:port -b pg bin directory"
+   exit 1
+ fi
+ if [  -z $p2 ];then
+   echo "USAGE: "
+   echo "$0 -m master:port -s slave:port -b pg bin directory"
+   exit 1
+ fi
+ if [  -z $PGHOME ];then
+   echo "USAGE: "
+   echo "$0 -m master:port -s slave:port -b pg bin directory"
+   exit 1
+ fi
+}
+
+function verifybin_connect()
+{
+  if [ -f $PGHOME/psql ];then
+    :
+  else
+      echo "ERROR: psql Not Found!"
+      exit 1
+  fi
+  Q="SELECT 'ping';"
+  $PGHOME/psql -h $1 -p $2 -U postgres -c "$Q1" >/dev/null 2>/dev/null
+   if [ $? -ne 0 ];then
+       echo "ERROR: Master is not pinging on $h1"
+       exit 1
+  fi
+   $PGHOME/psql -h $3 -p $4 -U postgres -c "$Q1" >/dev/null 2>/dev/null
+   if [ $? -ne 0 ];then
+       echo "ERROR: Slave is not pinging on $h2"
+       exit 1
+  fi
+}
+
+function verify_is_recovery()
+{
+  Q="select pg_is_in_recovery()::int;"
+  status=`$PGHOME/psql -U postgres -c "$Q" -t -h $1 -p $2 template1|sed '/^$/d'`
+  if [ $status -eq 1 ];then
+     echo "MESSAGE: PG is in Recovery Mode"
+  else
+      echo "ERROR: Slave is out of Recovery Mode"
+      exit 1
+  fi
+}
+function convert_decimal()
+{
+  decimalval=`echo "ibase=16;obase=A;$1"|bc`
+  echo $decimalval
+}
+
+function get_xlog_name()
+{
+ Q1="select pg_xlogfile_name('$1');"
+ xlogname=`$PSQL -U postgres -h $2 -p $3 -t -c "$Q1" template1|sed '/^$/d'`
+ echo $xlogname
+}
+
+function main()
+{
+ verifybin_connect $1 $2 $3 $4
+ verify_is_recovery $3 $4
+ Q1="select pg_current_xlog_location();"
+ Q2="select pg_last_xlog_receive_location();"
+ Primxlog=`$PSQL -U postgres -t -c "$Q1" -h $1 -p $2 template1|sed '/^$/d'`
+ Secxlog=`$PSQL -U postgres -t -c "$Q2" -h $3 -p $4 template1|sed '/^$/d'`
+ secwal=`get_xlog_name $Secxlog $1 $2`
+ primwal=`get_xlog_name $Primxlog $1 $2`
+ primloc=`convert_decimal $primwal`
+ secloc=`convert_decimal $secwal`
+ result=`echo $primloc - $secloc|bc`
+ if [ $result -ne 0 ];then
+     echo "ALERT:: Seconday is lagging behind by $result files"
+ else
+     echo "Streaming Replication between $h1 -> $h2 is in Sync"
+ fi
+
+}
+usage
+main $h1 $p1 $h2 $p2
+

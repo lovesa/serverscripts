@@ -1,0 +1,27 @@
+#! /bin/sh
+#
+# Start PostgreSQL on the recovery target node
+#
+. /opt/serverscripts/utils/functions.sh
+
+if [ $# -ne 2 ]
+then
+    echo "pgpool_remote_start remote_host remote_datadir"
+    exit 1
+fi
+
+DEST=$1
+DESTDIR=$2
+PGCTL=/usr/pgsql-9.1/bin/pg_ctl
+DEFLOG=/var/log/pgpool/recovery.log
+ALLOWOUT=1
+
+e "Starting postgres on $DEST..."
+
+ssh $DEST "/etc/init.d/postgresql-9.1 start" >> $DEFLOG 2>&1
+if [ $? -ne 0 ]; then
+   error "Error during service start on $DEST" 1
+fi
+
+e "Done"
+exit 0

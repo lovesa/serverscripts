@@ -1,0 +1,38 @@
+#!/bin/bash
+
+PSQL="psql -U postgres"
+
+PCP_C="10 localhost 9898 postgres qwert234"
+NODEC=`pcp_node_count $PCP_C`
+
+N=""
+
+if [ "$NODEC" -lt 1 ]; then
+	echo "Error in cluster, pcp returned: $NODEC"
+	exit 0
+fi
+
+let "NODEC=$NODEC-1"
+
+for i in `seq 0 $NODEC`; do
+	STATUS=`pcp_node_info $PCP_C $i`
+	NODE=`echo $STATUS | awk '{print $1}'`
+	
+	#Check if node has pgsql running
+	Q="SELECT 'ping';"
+	
+	$PSQL -c "$Q" -h $NODE > /dev/null 2>/dev/null
+	
+	if [ $? -ne 0 ];then
+		echo "Error, postgres is nor running on $NODE"
+		exit 1
+	fi
+	
+	Q="select pg_is_in_recovery()::int;"
+	
+	status=`$PSQL -c "$Q" -t -h $NODE template1|sed '/^$/d'`
+	
+	if [ $status -eq 1 ];then
+		echo "Node $i $NODE is standby"
+	fi 
+done;

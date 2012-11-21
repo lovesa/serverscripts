@@ -1,0 +1,311 @@
+#!/bin/sh
+#
+# OCF style start/stop/monitoring script for pgpool. use with heartbeat 2.1+
+#
+# Author: TANIDA Yutaka, TAKATSUKA Haruka
+#
+# Copyright (c) 2006-2010           PgPool Global Development Group 
+#
+# Permission to use, copy, modify, and distribute this software and
+# its documentation for any purpose and without fee is hereby
+# granted, provided that the above copyright notice appear in all
+# copies and that both that copyright notice and this permission
+# notice appear in supporting documentation, and that the name of the
+# author not be used in advertising or publicity pertaining to
+# distribution of the software without specific, written prior
+# permission. The author makes no representations about the
+# suitability of this software for any purpose.  It is provided "as
+# is" without express or implied warranty.
+#
+# defined OCF_RESKEY_value:
+#    pgpoolconf pcpconf hbaconf logfile pidfile options pgpooluser
+#
+#    default port number will be read from pgpool.conf automatically.
+
+# Source function library.
+. ${OCF_ROOT}/resource.d/heartbeat/.ocf-shellfuncs
+. /opt/serverscripts/utils/functions.sh
+
+# . /etc/rc.d/init.d/functions
+
+#function debug {
+#	if [ ! -z "$(echo $LOGFILE | grep '%')"  ]; then 
+#      	su -c "echo -e \"***DEBUG:\" $(date "+%F %T") \": $1\" | /usr/sbin/rotatelogs -l $LOGFILE 86400 " $PGPOOLUSER
+#       else
+#		su -c "echo -e \"***DEBUG:\" $(date "+%F %T") \": $1\" >> $LOGFILE" $PGPOOLUSER 
+#	fi
+#	ocf_log debug $1
+#}
+#
+#function e {
+#         if [ ! -z "$(echo $LOGFILE | grep '%')"  ]; then 
+#		 su -c "echo -e \"*INFO:\" $(date "+%F %T") \": $1\" | /usr/sbin/rotatelogs -l $LOGFILE 86400" $PGPOOLUSER
+#	 else
+#		 su -c "echo -e \"*INFO:\" $(date "+%F %T") \": $1\" >> $LOGFILE" $PGPOOLUSER
+#        fi
+#	 ocf_log info $1
+#}
+#
+#function error {
+#	 if [ ! -z "$(echo $LOGFILE | grep '%')"  ]; then
+#		su -c "echo -e \"!!!ERROR:\" $(date "+%F %T") \": $1\" | /usr/sbin/rotatelogs -l $LOGFILE 86400" $PGPOOLUSER
+#	 else
+#         	su -c "echo -e \"!!!ERROR:\" $(date "+%F %T") \": $1\" >> $LOGFILE" $PGPOOLUSER
+#         fi
+#	 ocf_log err $1
+#}
+
+check_pid () {
+	debug "Running check_pid"
+	debug "PID: $PGPOOL_PID"
+	if [ -f $PGPOOL_PID ] 
+	then
+		debug "Trying to kill: kill -0 `cat $PGPOOL_PID`" 
+		kill -0 `cat $PGPOOL_PID` 2>&1 # >/dev/null 2>&1
+		return $?
+	else
+		debug "No running proccess found"
+		return 1
+	fi
+}
+
+PATH=/bin:/usr/bin:/sbin:/usr/sbin
+export PATH
+
+PGPOOLCMD=/usr/bin/pgpool
+DEBUG=1
+
+if [ "x$OCF_RESKEY_pgpooluser" = 'x' ]; then
+	PGPOOLUSER=postgres
+else
+	PGPOOLUSER=$OCF_RESKEY_pgpooluser
+fi
+
+RUNUSER=$PGPOOLUSER
+
+if [ "x$OCF_RESKEY_pgpoolconf" = 'x' ]; then
+	XX=$($PGPOOLCMD --help 2>&1 | grep ' config_file default path: ')
+	PGP_CONF=/etc/pgpool-II-91/pgpool.conf
+else
+	PGP_CONF=$OCF_RESKEY_pgpoolconf
+fi
+
+if [ "x$OCF_RESKEY_pcpconf" = 'x' ]; then
+	XX=$($PGPOOLCMD --help 2>&1 | grep '  pcp_config_file default path: ')
+	PCP_CONF=/etc/pgpool-II-91/pcp.conf
+else
+	PCP_CONF=$OCF_RESKEY_pcpconf
+fi
+
+if [ "x$OCF_RESKEY_hbaconf" = 'x' ]; then
+	XX=$($PGPOOLCMD --help 2>&1 | grep '  hba_file default path: ')
+	HBA_CONF=/etc/pgpool-II-91/pool_hba.conf
+else
+	HBA_CONF=$OCF_RESKEY_hbaconf
+fi
+
+if [ "x$OCF_RESKEY_options" != 'x' ]; then
+	OPTIONS=$OCF_RESKEY_options
+fi
+
+if [ "x$OCF_RESKEY_logfile" != 'x' ]; then
+	LOGFILE=$OCF_RESKEY_logfile
+fi
+
+if [ "x$OCF_RESKEY_pidfile" = 'x' ]; then
+	PGPOOL_PID=/tmp/pgpool.pid
+else
+	PGPOOL_PID=$OCF_RESKEY_pidfile
+fi
+
+PGPOOL="$PGPOOLCMD -f $PGP_CONF" 
+PGPOOL_START_ARG=""
+
+if [ "x$HBA_CONF" != 'x' ];then
+	PGPOOL="$PGPOOL -a $HBA_CONF"
+fi
+if [ "x$PCP_CONF" != 'x' ];then
+	PGPOOL="$PGPOOL -F $PCP_CONF"
+fi
+if [ "x$OPTIONS" != 'x' ]; then
+	PGPOOL_START_ARG="$PGPOOL_START_ARG $OPTIONS"
+fi
+if [ "x$LOGFILE" != 'x' ];then
+	DEFLOG=$LOGFILE
+
+	PGPOOL="nohup $PGPOOL"
+
+     	if [ ! -z "$(echo $LOGFILE | grep '%')"  ]; then
+		debug "Started with logrotate option"
+        	PGPOOL_START_ARG="$PGPOOL_START_ARG -n 2>&1 | /usr/sbin/rotatelogs -l $LOGFILE 86400 &"
+	else
+        	PGPOOL_START_ARG="$PGPOOL_START_ARG -n >>$LOGFILE 2>&1 &"
+    	fi
+fi
+
+PGPOOL_STOP_ARG=" stop"
+PGPOOL_FORCE_STOP_ARG=" -m i $PGPOOL_STOP_ARG"
+PGPOOL_MONITOR=${PGPOOLCMD}.monitor 
+PGPOOL_MONITOR_ARGS="--conf=$PGP_CONF localhost"
+
+
+# See how we were called.
+case "$1" in
+	start)
+	debug "Starting pgpool"
+	if check_pid 
+	then 
+		error "pgpool is already running."
+		exit 0
+	else
+		e "pgpoolRA: su -c \" $PGPOOL $PGPOOL_START_ARG \" $PGPOOLUSER"
+		su -c "$PGPOOL $PGPOOL_START_ARG" $PGPOOLUSER
+		ret_stat=$?
+		if [ $ret_stat -ne 0 ]; then
+			error "Pgpool start failed: $ret_stat" $ret_stat
+		fi
+		exit $ret_stat
+   	fi
+	;;
+	stop)
+	debug "Stoping pgpool"
+	if check_pid
+	then
+#		RET=`su -c "$PGPOOL $PGPOOL_STOP_ARG | grep ERROR" $PGPOOLUSER` 
+#		ocf_log info "pgpoolRA: $RET"
+#		if [ -z "$RET" ] ; then
+#			exit 0
+#		else
+#  try immediate stop.
+			RET=`su -c "$PGPOOL $PGPOOL_FORCE_STOP_ARG | grep ERROR " $PGPOOLUSER`
+			e "pgpoolRA: $RET"
+			if [ -z "$RET" ] ; then
+				exit 0;
+			else
+				error "Pgpool stop failed: $RET" 7
+				exit 7;
+			fi
+#		fi
+	else
+		e "pgpoolRA: request stop, but not running."
+		exit $OCF_NOT_RUNNING 
+	fi
+	;;
+	status)
+	debug "Check status"
+	if check_pid
+	then exit 0 # no error
+	else exit 2 # not running
+	fi
+	;;
+	monitor)
+	debug "Start monitoring" 
+	if check_pid
+	then
+		debug "Running $PGPOOL_MONITOR $PGPOOL_MONITOR_ARGS"
+		$PGPOOL_MONITOR $PGPOOL_MONITOR_ARGS 
+		ret_stat=$?
+		if [ $ret_stat -ne 0 ]; then
+			error "Pgpool monitoring failed: $ret_stat" $ret_stat
+		fi
+
+		exit $ret_stat
+	else
+		e "Pgpool monitoring check_pid failed or pgpool not running"
+		exit $OCF_NOT_RUNNING # stop or fail
+	fi
+	;;
+	methods)
+	echo start
+	echo stop
+	echo status
+	echo methods        
+	echo monitor
+	echo recover
+	echo reload
+	;;
+	recover|reload)
+	$0 stop
+	$0 start
+	exit 0
+	;;
+	meta-data)
+cat <<EOF
+<?xml version="1.0"?>
+<!DOCTYPE resource-agent SYSTEM "ra-api-1.dtd">
+  <resource-agent name="pgpool">
+    <version>1.0</version>
+    <longdesc lang="en">
+      OCF-spec start , stop ,and monitoring script for pgpool
+    </longdesc>
+    <shortdesc lang="en">pgpool server control.</shortdesc>
+    <parameters>
+      <parameter name="pgpoolconf" unique="0" required="0">
+      <longdesc lang="en">
+        Path to pgpool.conf
+      </longdesc>
+      <shortdesc lang="en">pgpool.conf path</shortdesc>
+      <content type="string" default="$PGP_CONF" />
+    </parameter>
+    <parameter name="pcpconf" unique="0" required="0">
+      <longdesc lang="en">
+        Path to pcp.conf. pgpool-II only.
+      </longdesc>
+      <shortdesc lang="en">pcp.conf</shortdesc>
+      <content type="string" default="$PCP_CONF" />
+    </parameter>
+    <parameter name="hbaconf" unique="0" required="0">
+      <longdesc lang="en">
+         Path to pool_hba.conf. requires pgpool > 3.2 only.
+      </longdesc>
+      <shortdesc lang="en">pool_hba.conf</shortdesc>
+      <content type="string" default="$HBA_CONF" />
+    </parameter>
+    <parameter name="logfile" unique="0" required="0">
+      <longdesc lang="en">
+         Path to output logfile . logfile contains debuglog. if this entry is empty , log output is depends on pgpool.
+      </longdesc>
+      <shortdesc lang="en">logfile</shortdesc>
+      <content type="string" default="" />
+    </parameter>
+    <parameter name="pidfile" unique="0" required="0">
+      <longdesc lang="en">
+         Path to pgpool.pid
+      </longdesc>
+      <shortdesc lang="en">pidfile</shortdesc>
+      <content type="string" default="/tmp/pgpool.pid" />
+    </parameter>
+    <parameter name="options" unique="0" required="0">
+      <longdesc lang="en">
+         additional options of pgpool-II start command. (e.g. -d)
+      </longdesc>
+      <shortdesc lang="en">options</shortdesc>
+      <content type="string" default="" />
+    </parameter>
+    <parameter name="pgpooluser" unique="0" required="0">
+      <longdesc lang="en">
+         pgpool-II user. (e.g. "postgres"(default), "pgpool" or "root")
+      </longdesc>
+      <shortdesc lang="en">options</shortdesc>
+      <content type="string" default="postgres" />
+    </parameter>
+   </parameters>
+  <actions>
+    <action name="start"   timeout="20" />
+    <action name="stop"    timeout="20" />
+    <action name="status"  timeout="10" />
+    <action name="monitor" depth="0"  timeout="20" interval="10" start-delay="1m" />
+    <action name="recover"  timeout="20" />
+    <action name="reload"  timeout="20" />
+    <action name="meta-data"  timeout="5" />
+  </actions>
+  </resource-agent>
+EOF
+	exit 0;
+	;;
+    *)
+	echo "Usage: $0 {start|stop|status|methods|reload|recover|meta-data|monitor}"
+	exit 7
+esac
+
+exit 0

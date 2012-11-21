@@ -1,0 +1,4 @@
+check process ruptela with pidfile /opt/ruptela/bin/fm+garmin.pid
+    start program = "/etc/init.d/ruptela start"
+    stop program  = "/etc/init.d/ruptela stop"
+	  if failed port 9015 type tcp with timeout 15 seconds then restart

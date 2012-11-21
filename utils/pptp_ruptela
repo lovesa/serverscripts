@@ -1,0 +1,79 @@
+#!/bin/sh
+# chkconfig: 2345 89 10
+
+function start {
+	if ! status; then
+		echo "Starting PPTP"
+		pppd call ruptela
+		ret_st=$?
+		
+		if [ $ret_st -ne 0 ]; then
+			echo "PPTP call FAILED!"
+		fi	
+		
+	else
+
+		echo "PPTP alredy running"
+
+	fi
+	
+	return $ret_st
+	
+}
+
+function stopit {
+	if status; then
+		killall -9 pppd
+		ret_st=$?
+		
+		if [ $ret_st -ne 0 ]; then
+                        echo "PPTP kill FAILED!"
+                else
+			echo "PPTP is stopped"
+		fi
+
+	else
+		echo "PPTP is not running"
+	fi
+
+	return $ret_st
+}
+
+function status {
+	ret_msg=`ifconfig ppp0 2>/dev/null`
+	ret_st=$?
+	
+	if [ $ret_st -eq 0 ]; then
+		echo "PPTP is running"
+	else
+		echo "PPTP is closed"
+	fi
+
+	return $ret_st	
+}
+
+case "$1" in
+
+    'start')
+        start
+	RETVAL=$?
+        ;;
+
+    'stop')
+        stopit
+	RETVAL=$?
+        ;;
+
+    'status')
+        status
+	RETVAL=$?
+        ;;
+
+    *)
+        echo "Usage: $0 { start | stop | status }"
+        exit 1
+        ;;
+esac
+
+exit $RETVAL
+

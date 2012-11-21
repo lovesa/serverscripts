@@ -1,0 +1,18 @@
+#!/bin/bash
+SERVER=/etc/init.d/postbix
+
+STATUS=`$SERVER status | awk '{ print $3 }'`
+
+function e {
+  echo -e $(date "+%F %T"):  $1
+}
+
+
+if [ "$STATUS" == "running" ] 
+   then
+     STATUS=1
+   else
+    STATUS=0
+fi
+
+echo $STATUS

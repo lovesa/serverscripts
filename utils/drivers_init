@@ -1,0 +1,42 @@
+#!/bin/sh
+#!/bin/sh
+# chkconfig: 2345 90 9
+
+function start {
+
+	drivers start
+	
+}
+
+function stopit {
+
+	drivers stop
+}
+
+function status {
+	
+	drivers status	
+
+}
+case "$1" in
+
+    'start')
+        start
+        ;;
+
+    'stop')
+        stopit
+        ;;
+
+    'status')
+        status
+        ;;
+
+    *)
+        echo "Usage: $0 { start | stop | status }"
+        exit 1
+        ;;
+esac
+
+exit 0
+

@@ -1,0 +1,25 @@
+#!/bin/sh
+ARGV=("$@")
+ZABBIX_SENDER=/bin/zabbix_sender
+LOG=/var/log/zabbix/zabbix_sender.log
+SERVER=/opt/smsserver/bin/smsserver
+
+STATUS=`$SERVER status | awk '{ print $4 }'`
+KEY="custom.smsserver"
+
+function e {
+  echo -e $(date "+%F %T"):  $1
+}
+
+e "Smsserver"
+if [ "$STATUS" == "running" ] 
+   then
+     STATUS=1
+   else
+    STATUS=0
+fi
+
+#echo $STATUS
+#echo "$ZABBIX_SENDER -z ${ARGV[0]} -s ${ARGV[1]} -k custom.pgsqlup -o $STATUS"
+e "Sending $KEY = $STATUS" >> $LOG
+$ZABBIX_SENDER -z ${ARGV[0]} -s ${ARGV[1]} -k $KEY -o $STATUS >> $LOG

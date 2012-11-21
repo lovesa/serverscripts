@@ -1,0 +1,6 @@
+#!/bin/sh
+STATUS=`netstat -nat | awk '{print $6}' | sort | uniq -c | sort -n | grep ESTABLISHED | awk '{print $1}'`
+
+KEY="custom.conncount"
+
+echo $STATUS

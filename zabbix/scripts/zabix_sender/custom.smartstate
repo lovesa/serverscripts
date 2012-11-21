@@ -1,0 +1,32 @@
+#!/usr/bin/perl
+#
+# process output of the command
+# /opt/compaq/hpacucli/bld/hpacucli controller all show config
+# and generate zabbix events
+#
+use strict;
+use warnings;
+
+my $zabbixserver = $ARGV[0];
+my $hostname = $ARGV[1];
+my $zabbix_sender = "/bin/zabbix_sender";
+
+my $term = -1;
+while (<STDIN>) {
+my $line = $_;
+if ($line =~ m/icaldrive/) {
+if ($term<1) {
+if ($line =~ m/, OK[\)\,]/) {
+$term=0;
+} else {
+$term=1;
+};
+};
+};
+};
+if ($term >= 0) {
+my $cmd = $zabbix_sender." -z ".$zabbixserver." -s ".$hostname." -k custom.raidstate -o ".$term." >> /var/log/zabbix/zabbix_sender.log";
+my $return = `$cmd`;
+};
+exit 0;
+#-------------------------------

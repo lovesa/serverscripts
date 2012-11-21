@@ -1,0 +1,174 @@
+#!/usr/bin/perl
+# Copyright (c) 2006-2007          PgPool Global Development Group 
+#
+#Permission to use, copy, modify, and distribute this software and
+#its documentation for any purpose and without fee is hereby
+#granted, provided that the above copyright notice appear in all
+#copies and that both that copyright notice and this permission
+#notice appear in supporting documentation, and that the name of the
+#author not be used in advertising or publicity pertaining to
+#distribution of the software without specific, written prior
+#permission. The author makes no representations about the
+#suitability of this software for any purpose.  It is provided "as
+#is" without express or implied warranty.
+#
+# $Id: pgpool.monitor.in,v 1.3 2007/01/04 17:23:29 devrim Exp $
+#
+# arguments:
+#
+#  --username=username (postgres)
+#  --database=database (template1)
+#  --port= port no (5432)
+#    hostname
+#
+# A monitor program suitable for PostgreSQL , pgpool and pglb , load balancer process of PGCluster.
+#
+
+use Getopt::Long;
+
+sub dprint {
+	if($options{debug}) {
+	     print @_;
+	}
+}
+
+GetOptions( \%options,"conf=s","debug=i","retry=i","psql=s","mode=s","port=i", "username=s", "password=s", "database=s" );
+
+#if($options{mode} eq "pgpool") {
+$query='show pool_status' ;
+#}else {
+#    $query='select 1';
+#}
+
+
+# read some configuration from pgpool.conf
+
+
+unless(!$options{conf}) {
+        dprint("read form conf");
+        open P,$options{conf} || die;
+        while(<P>) {
+                my $c=$_;
+                $c=~m/^port\s*=\s*(\d+)$/ && do {
+                        dprint("get port number from config $1\n");;
+                        $options{port}=$1;
+                };
+                $c=~m/^health_check_user\s*=\s*'(.*)'$/ && do {
+                        dprint("get health-check user and database name from config $1\n");;
+                        $u=$1;
+                        #$options{database}=$u;
+                        $options{username}=$u;
+                };
+        	$c=~m/^health_check_password\s*=\s*'(.*)'$/ && do {
+                        dprint("get health-check password from config $1\n");;
+                        $u=$1;
+                        $options{password}=$u;
+                }
+	}
+        close(P);
+}
+
+
+#default values.
+
+
+$options{port} = 9999 if ! $options{port};
+$options{database} = 'template1' if ! $options{database};
+$options{username} = 'postgres' if ! $options{username};
+$options{psql} = '/usr/bin/psql' if ! $options{psql};
+$options{retry} = 3 if ! $options{retry};
+$options{debug} = 0 if ! $options{debug};
+
+
+
+
+# checking
+
+for $host( @ARGV ) {
+
+# $res is used for error_state checking (0..ok 1..need retry 2..immidiate error);
+# 3 .. means internal error. Retry immediately.
+#
+    my $res=1; 
+#retry count 
+    my $retry = $options{retry};
+    do {
+	my $openstr="echo -n -e '$options{password}\n' | $options{psql} -h $host -p $options{port} -U  $options{username} -c '$query' $options{database} 2>&1 |";
+
+	dprint "psql exec: ".$openstr."\n";
+
+	open(P,$openstr);
+	while(<P>) {
+
+
+	    dprint $_;
+
+# command execution success.
+
+	    ($res=0) if /^\(\d+ row[s]?\)/ ;
+	    if (/server closed the connection unexpectedly/) {
+	        $res=1;
+	        $reason="unexpected backend crash.";
+	    }
+
+# connection 
+            if (/could not connect to server:/) {
+		$res=1;
+		$reason="connection failed." 
+		}
+
+# 'not found' means something resource was not found.
+	    if (/does not exist/) {
+		$res=2;
+		$reason="resource not found" ;
+	    }
+
+# change mode from pgpool to postgresql if backend can not recognize 'pool_status' parameter.
+	    if (/Option \'pool_status\' is not recognized/) {
+		$res=3;
+		$query="select 1";
+		$reason="It's not seems pgpool."; 
+	    }
+# connection full ,it can retry . 
+	    if (/backend connection is full/) {
+		$reason="unexpected connection full." ;
+	    }
+
+# "starting up" will 
+	    if (/is starting up/) {
+		$reason="too long startup";  
+	    }
+# Containing "is recovery" will be recoverying processes. so we can wait long. 
+	    if (/is recovery/) {
+		++$retry ;
+	    }
+	}
+	close(P);
+
+	dprint "result= $res , reason= $reason \n";
+
+# res
+
+	if($res==1 && $retry!=1) {
+	    dprint "retry. reason = $reason \n";
+	    sleep 2;
+	}elsif($res==3) {
+	    $res=1;
+	    ++$retry;
+	}	 	
+    }while ($res==1 && 0<--$retry);
+
+    if ($res!=0) {
+	push( @failures, "giving up to check database $options{database} on server $host. Reason:".$reason );
+    }
+
+}
+
+if (@failures) {
+    print join (", ", sort @failures), "\n";
+    dprint("pgpool.monitor failed.\n");    
+    exit 1;
+};
+dprint("pgpool.monitor succeeded.\n");
+exit 0;
+

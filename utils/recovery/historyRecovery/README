@@ -1,0 +1,14 @@
+History recovery for Ruptela hardware
+
+logparser.sh is a script for Ruptela driver log parsing. The purpose of the script is to get 
+object id from log files using specified IMEI list. After parsing script creates object file list with 
+old object->new object connection. Also it creates sql files for connect new object id with old object 
+history.
+
+HOW TO USE:
+	- create imei file called "imei" where IMEIS list is placed one imei in line;
+	- create "sql" and "data" directories;
+	- palce Ruptela drivers logs init "data" directory;
+	- run logparser.sh
+	- check SQL files in sql directory;
+	- if everything is ok, run copy.sh;

@@ -1,0 +1,6 @@
+#!/bin/bash
+hpacucli controller all show config | \
+/bin/fgrep icaldrive | /usr/bin/tee /root/raidstatepipe | \
+/usr/bin/logger -t raidstate & \
+/usr/local/zabbix/scripts/custom.smartstate zabbix.ruptela.lt s1.ruptela.lt < /root/raidstatepipe 
+

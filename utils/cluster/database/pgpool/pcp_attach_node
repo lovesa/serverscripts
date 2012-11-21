@@ -1,0 +1,90 @@
+#!/bin/bash
+
+. /opt/serverscripts/utils/functions.sh
+
+DEBUG=1
+
+CONFIG=some.php
+
+PGOPT="-U postgres"
+
+DEFPOOL="localhost"
+DEFNODE=1
+
+function pool_ip() {
+	local ret_msg
+	local ret_st
+	local Q
+	local PING
+
+# Pool address determination 
+	if [ -f $CONFIG ]; then
+		#Trying to get pool address frm config
+		debug "Trying to ger pool address"
+
+		ret_msg=`cat $CONFIG | grep "'db' => array (" -A 5 | grep "'host'" | sed -n "s/'host'.*'\(.*\)'.*/\1/p" | tr -d ' '`
+	
+		debug "Pool address: $ret_msg"
+	
+		if [ "X$ret_msg" != "X" ]; then
+			# Trying to ping 
+			debug "Trying to ping host: $ret_msg"
+			PING=`ping -q -n -c 2 ${ret_msg} | grep "packet loss" | cut -d " " -f 6 | cut -d "%" -f1`
+			ret_st=$?
+
+        		debug "Packet lost: ${PING}"
+
+        		if [ $? -eq 0 ]; then
+                		if [ $PING -gt 50 ]; then
+                        		error "Can not ping host ${ret_msg}"
+                        		exit 1
+                		else
+					debug "Node ${ret_msg} is good, using it"
+					POOL=$ret_msg
+				fi
+        		else
+                		error "Failed to ping, returned $ret_st"
+				exit 1
+                	fi
+        			
+		fi
+	fi
+
+	if [ -z "$DEFPOOL" ]; then
+		DEFPOOL="localhost"
+	fi
+
+	if [ "X$POOL" == "X" ]; then
+		POOL=$DEFPOOL
+	fi
+	
+	PSQL="psql $PGOPT"
+	
+	debug "Set PSQL: $PSQL"
+
+	#Starting check of pgpool postgres
+
+	Q="SELECT 'ping';"
+
+        ret_msg=`$PSQL -h $POOL -c "$Q"`
+	ret_st=$?
+
+        if [ $ret_st -ne 0 ];then
+                echo "Error, postgres is not running on $POOL($ret_st): $ret_msg"
+                exit 1
+        fi
+
+
+}
+
+if pool_ip; then
+	debug "Running ssh $POOL \"pcp_detach_node $1 $2 $3 $4 $5 $6\""
+	ssh $POOL "pcp_attach_node $1 $2 $3 $4 $5 $6" 2>&1
+	ret_st=$?
+	if [ $ret_st -ne 0 ]; then
+		error "Can not attach node($ret_st)"
+		exit 1
+	fi
+fi
+
+exit

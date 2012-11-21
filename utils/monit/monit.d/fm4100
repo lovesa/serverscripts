@@ -1,0 +1,4 @@
+check process fm4100 with pidfile /opt/fm4100/bin/fm4100.pid
+    start program = "/etc/init.d/fm4100 start"
+    stop program  = "/etc/init.d/fm4100 stop"
+	  if failed port 7999 type tcp with timeout 15 seconds then restart

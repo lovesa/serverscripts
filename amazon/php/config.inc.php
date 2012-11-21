@@ -1,0 +1,7 @@
+<?php
+
+define("AWS_ACCESS_KEY_ID", "AKIAJRJAIO3IJL5QYEMQ");
+
+define("AWS_SECRET_ACCESS_KEY",     "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");
+
+define("AWS_AUTHORITY",     FALSE);

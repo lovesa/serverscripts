@@ -1,0 +1,78 @@
+#!/bin/bash
+
+. /opt/serverscripts/utils/functions.sh
+
+DEBUG=1
+#DEFLOG=/var/log/lngqkiller.log.%Y-%m-%d
+LONGT="10 min"					#Time fter which query considered long (in postgres interval format"
+
+max=0
+
+while getopts "t:" OPTION
+do
+     case $OPTION in
+         t)
+             LONGT=$OPTARG
+             ;;
+     esac
+     if [ $OPTIND -gt $max ]
+
+        then
+                let "max=$OPTIND-1"
+
+        fi
+done
+
+shift $max
+
+PSQL="psql -U aleks dev -h 192.168.10.80"
+QUERY_D="SELECT procpid,xact_start, (CURRENT_TIMESTAMP - xact_start) as diff, current_query FROM pg_stat_activity WHERE current_query != '<IDLE>' AND xact_start < CURRENT_TIMESTAMP - interval '$LONGT';"
+QUERY="SELECT procpid,xact_start, (CURRENT_TIMESTAMP - xact_start) as diff FROM pg_stat_activity WHERE current_query != '<IDLE>' AND xact_start < CURRENT_TIMESTAMP - interval '$LONGT';"
+
+if [ ! -z "$1" ]; then
+	MODE=$1
+fi
+
+e "Starting long query killer for queries longer than: $LONGT"
+debug "Using psql: $PSQL"
+
+detailed=`$PSQL -c "$QUERY_D" 2>&1`
+detailed_st=$?
+ndetailed=`$PSQL -t -c "$QUERY" 2>&1`
+ndetailed_st=$?
+
+	if [ $detailed_st -ne 0 ] || [ $ndetailed_st -ne 0 ]; then
+		error "Error occured during psql($detailed_st): $detailed"
+		exit 1
+	fi
+
+debug "Detailed query: \n$detailed"
+
+if [ ! -z "$MODE" ] && [ "$MODE" == "show" ]; then
+	e "#####SHOW MODE\n\n"
+
+	echo "$detailed"
+	
+	exit 0
+fi
+
+echo -e "$ndetailed" | while read line
+do
+	if [ ! -z "$line" ]; then
+		pid=`echo "$line" | awk '{print $1}'` #sed '/^$/d'`
+		e "Got pid: $pid"
+		#if checkpid $pid; then
+		#	debug "PID $pid is running"	
+		#else
+		#	error "No process running"
+		#fi
+		debug "Running query: SELECT pg_cancel_backend($pid);"
+		#ret_msg=`$PSQL -t -c "SELECT pg_cancel_backend($pid);" 2>&1`
+		ret_st=$?
+
+		if [ $ret_st -ne 0 ]; then
+			error "Error during process termination($ret_st): $ret_msg"
+		fi
+	fi
+done
+

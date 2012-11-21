@@ -1,0 +1,25 @@
+#!/bin/sh
+
+STATUS=`psql -U postgres -c "SHOW pool_nodes"`
+MASTER=`echo $STATUS | awk '{print $17}'`
+SLAVE=`echo $STATUS | awk '{print $26}'`
+
+if [ ! -z "$MASTER" ] && [ ! -z "$SLAVE" ]; then
+	if [ $MASTER -gt 2 ]; then
+		if [ $SLAVE -gt 2 ]; then
+			echo 4
+			exit
+		else
+			echo 3
+			exit
+		fi
+	else
+		if [ $SLAVE -gt 2 ]; then
+			echo 2
+			exit
+		else
+			echo 1
+			exit
+		fi
+	fi
+fi
